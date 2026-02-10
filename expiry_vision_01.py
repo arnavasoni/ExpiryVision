@@ -2,6 +2,7 @@
 
 # UN notes as optional for DG goods category
 
+import sys
 # Provides classes for integrating Gemini models to the LangChain framework.
 from langchain_google_genai import ChatGoogleGenerativeAI
 # A method to convert images, files into a text-only format.
@@ -26,6 +27,7 @@ import pandas as pd
 # ---------------------------------------------------------
 
 class LabelExtractionResult(BaseModel):
+    part_number: Optional[str] # Extract where possible on the label.
     product_description: str # str is a type annotation, not an assignment. This attribute exists and the type should be a string.
     vendor_or_brand: str
     batch_number: str
@@ -82,7 +84,6 @@ client = ChatGoogleGenerativeAI(
     client_options={"api_endpoint": nexus_base_url}, # overrides the default Google endpoint cuz Gateway needed.
     transport="rest", # requests are sent as HTTP requests. This is how we talk to the server.
     temperature=0, # deterministic output. Same input -> same output
-    max_output_tokens=1024, # to cap response size. Tokens are similar to chunks of words (here).
 )
 
 
@@ -126,7 +127,7 @@ def process_image_with_gemini(image_path):
 
         Return ONLY a VALID JSON object with EXACT KEYS:
 
-
+        - part_number (string: 11 alphanumeric characters if counted without the spaces. Eg: "A 167 682 8900" returns "A1676828900")
         - product_description (string)
         - vendor_or_brand (string)
         - batch_number (string)
@@ -166,42 +167,162 @@ def process_image_with_gemini(image_path):
 # 5. CSV UPDATER
 # ---------------------------------------------------------
 
-CSV_PATH = r"C:\Coding\ACOS\data\batch_details.csv"
+# CSV_PATH = r"C:\Users\SONIARN\OneDrive - Mercedes-Benz (corpdir.onmicrosoft.com)\ACOS - A Consumable Ordering System\batch_details.csv"
+EXCEL_PATH = r"C:\Users\SONIARN\OneDrive - Mercedes-Benz (corpdir.onmicrosoft.com)\DWT_ExpiryVision - Documents\Data\batch_details.xlsx" 
 
-def update_csv_with_extraction(result: dict, csv_path: str = CSV_PATH):
+# def update_csv_with_extraction(result: dict, csv_path: str = CSV_PATH):
+#     """
+#     Updates batch_details.csv using Gemini output.
+#     - Matches rows using batch_number
+#     - Updates only empty cells
+#     - Never deletes or overwrites existing data
+#     """
+
+#     if "error" in result:
+#         print("Skipping CSV update due to extraction error.")
+#         return
+
+#     # Normalize Gemini keys → CSV keys
+#     extracted = {
+#     "batch_number": result.get("batch_number", "").strip(),
+#     "part_number": (result.get("part_number") or "").replace(" ", "").strip(),
+#     "product_description": result.get("product_description", "").strip(),
+#     "expiry_date": result.get("expiry_date", ""),
+#     "units_in_batch": result.get("units_in_batch", 0),
+#     "quantity_per_unit": result.get("quantity_per_unit", 0),
+#     "UOM": result.get("UOM", ""),
+#     "vendor_or_brand": result.get("vendor_or_brand", ""),
+#     }
+
+#     if not extracted["batch_number"]:
+#         print("Batch number missing. Skipping CSV update.")
+#         return
+
+#     pn = extracted["part_number"]
+#     if pn and len(pn) >= 7 and pn[4:7] == "682":
+#         extracted["production_description"] = "Foam Parts"
+    
+#     # Load CSV
+#     df = pd.read_csv(csv_path)
+
+#     # Ensure expected columns exist
+#     expected_columns = [
+#         "batch_number",
+#         "part_number",
+#         "product_description",
+#         "expiry_date",
+#         "units_in_batch",
+#         "quantity_per_unit",
+#         "total_quantity",
+#         "UOM",
+#         "vendor_or_brand",
+#         "status",
+#         "days_pending",
+#     ]
+
+#     DATE_COLUMNS = [
+#         "last_notified_date",
+#         "revised_expiry_date",
+#         "effective_expiry_date",
+#         "last_vendor_response_date",
+#         "revalidation_timestamp",
+#     ]
+
+#     # Get expected columns in batch_details.csv
+#     for col in expected_columns:
+#         if col not in df.columns:
+#             df[col] = ""
+
+#     # Get date columns in batch_details.csv
+#     for col in DATE_COLUMNS:
+#         if col not in df.columns:
+#             df[col] = ""
+#     # Check if batch already exists
+#     match_idx = df.index[df["batch_number"] == extracted["batch_number"]].tolist()
+
+#     if match_idx:
+#         idx = match_idx[0]
+#         row = df.loc[idx]
+
+#         # Update only empty fields
+#         for col, value in extracted.items():
+#             if (pd.isna(row[col]) or str(row[col]).strip() == "") and value not in ["", 0]:
+#                 df.at[idx, col] = value
+
+#         # Calculate total quantity ONLY if empty
+#         if (
+#             (pd.isna(row["total_quantity"]) or str(row["total_quantity"]).strip() == "")
+#             and extracted["units_in_batch"] > 0
+#             and extracted["quantity_per_unit"] > 0
+#         ):
+#             df.at[idx, "total_quantity"] = (
+#                 extracted["units_in_batch"] * extracted["quantity_per_unit"]
+#             )
+
+#     else:
+#         # Create new row
+#         total_qty = (
+#             extracted["units_in_batch"] * extracted["quantity_per_unit"]
+#             if extracted["units_in_batch"] > 0 and extracted["quantity_per_unit"] > 0
+#             else ""
+#         )
+
+#         new_row = {
+#         "part_number": extracted["part_number"],
+#         "product_description": extracted["product_description"],
+#         "batch_number": extracted["batch_number"],
+#         "expiry_date": extracted["expiry_date"],
+#         "units_in_batch": extracted["units_in_batch"],
+#         "quantity_per_unit": extracted["quantity_per_unit"],
+#         "total_quantity": total_qty,
+#         "UOM": extracted["UOM"],
+#         "vendor_or_brand": extracted["vendor_or_brand"],
+#         }
+
+#         df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
+
+#     # Write back safely
+#     df.to_csv(csv_path, index=False)
+#     print(f"CSV updated for batch: {extracted['batch_number']}")
+
+def update_excel_with_extraction(result: dict, excel_path: str = EXCEL_PATH):
     """
-    Updates batch_details.csv using Gemini output.
+    Updates batch_details.xlsx using Gemini output.
     - Matches rows using batch_number
     - Updates only empty cells
     - Never deletes or overwrites existing data
     """
 
     if "error" in result:
-        print("Skipping CSV update due to extraction error.")
+        print("Skipping Excel update due to extraction error.")
         return
 
-    # Normalize Gemini keys → CSV keys
     extracted = {
         "batch_number": result.get("batch_number", "").strip(),
+        "part_number": (result.get("part_number") or "").replace(" ", "").strip(),
+        "product_description": result.get("product_description", "").strip(),
         "expiry_date": result.get("expiry_date", ""),
         "units_in_batch": result.get("units_in_batch", 0),
         "quantity_per_unit": result.get("quantity_per_unit", 0),
         "UOM": result.get("UOM", ""),
         "vendor_or_brand": result.get("vendor_or_brand", ""),
-}
-
+    }
 
     if not extracted["batch_number"]:
-        print("Batch number missing. Skipping CSV update.")
+        print("Batch number missing. Skipping Excel update.")
         return
 
-    # Load CSV
-    df = pd.read_csv(csv_path)
+    pn = extracted["part_number"]
+    if pn and len(pn) >= 7 and pn[4:7] == "682":
+        extracted["product_description"] = "Foam Parts"
 
-    # Ensure expected columns exist
+    # Load Excel
+    df = pd.read_excel(excel_path, engine="openpyxl")
+
     expected_columns = [
-        "part_number",
         "batch_number",
+        "part_number",
+        "product_description",
         "expiry_date",
         "units_in_batch",
         "quantity_per_unit",
@@ -212,23 +333,28 @@ def update_csv_with_extraction(result: dict, csv_path: str = CSV_PATH):
         "days_pending",
     ]
 
-    for col in expected_columns:
+    DATE_COLUMNS = [
+        "last_notified_date",
+        "revised_expiry_date",
+        "effective_expiry_date",
+        "last_vendor_response_date",
+        "revalidation_timestamp",
+    ]
+
+    for col in expected_columns + DATE_COLUMNS:
         if col not in df.columns:
             df[col] = ""
 
-    # Check if batch already exists
     match_idx = df.index[df["batch_number"] == extracted["batch_number"]].tolist()
 
     if match_idx:
         idx = match_idx[0]
         row = df.loc[idx]
 
-        # Update only empty fields
         for col, value in extracted.items():
             if (pd.isna(row[col]) or str(row[col]).strip() == "") and value not in ["", 0]:
                 df.at[idx, col] = value
 
-        # Calculate total quantity ONLY if empty
         if (
             (pd.isna(row["total_quantity"]) or str(row["total_quantity"]).strip() == "")
             and extracted["units_in_batch"] > 0
@@ -239,7 +365,6 @@ def update_csv_with_extraction(result: dict, csv_path: str = CSV_PATH):
             )
 
     else:
-        # Create new row
         total_qty = (
             extracted["units_in_batch"] * extracted["quantity_per_unit"]
             if extracted["units_in_batch"] > 0 and extracted["quantity_per_unit"] > 0
@@ -247,21 +372,14 @@ def update_csv_with_extraction(result: dict, csv_path: str = CSV_PATH):
         )
 
         new_row = {
-            "part_number": "",
-            "batch_number": extracted["batch_number"],
-            "expiry_date": extracted["expiry_date"],
-            "units_in_batch": extracted["units_in_batch"],
-            "quantity_per_unit": extracted["quantity_per_unit"],
+            **extracted,
             "total_quantity": total_qty,
-            "UOM": extracted["UOM"],
-            "vendor_or_brand": extracted["vendor_or_brand"],
         }
 
         df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
 
-    # Write back safely
-    df.to_csv(csv_path, index=False)
-    print(f"CSV updated for batch: {extracted['batch_number']}")
+    df.to_excel(excel_path, index=False, engine="openpyxl")
+    print(f"Excel updated for batch: {extracted['batch_number']}")
 
 
 # ---------------------------------------------------------
@@ -270,23 +388,35 @@ def update_csv_with_extraction(result: dict, csv_path: str = CSV_PATH):
 
 
 if __name__ == "__main__":
-    paths = [
-        # r"C:\Users\SONIARN\OneDrive - Mercedes-Benz (corpdir.onmicrosoft.com)\DISCO\Database\label_images\eftec_label.jpg",
-        # r"C:\Users\SONIARN\OneDrive - Mercedes-Benz (corpdir.onmicrosoft.com)\DISCO\Database\label_images\eftec_label_2.jpg",
-        # r"C:\Users\SONIARN\OneDrive - Mercedes-Benz (corpdir.onmicrosoft.com)\DISCO\Database\label_images\sika_label_1.jpg",
-        # r"C:\Users\SONIARN\OneDrive - Mercedes-Benz (corpdir.onmicrosoft.com)\DISCO\Database\label_images\sika_label_2.jpg",
-        # r"C:\Users\SONIARN\OneDrive - Mercedes-Benz (corpdir.onmicrosoft.com)\DISCO\Database\label_images\Image_1.jpg",
-        r"C:\Users\SONIARN\OneDrive - Mercedes-Benz (corpdir.onmicrosoft.com)\DISCO\Database\label_images\Image_2.jpg",
-        r"C:\Users\SONIARN\OneDrive - Mercedes-Benz (corpdir.onmicrosoft.com)\DISCO\Database\label_images\Image_3.jpg",
-        r"C:\Users\SONIARN\OneDrive - Mercedes-Benz (corpdir.onmicrosoft.com)\DISCO\Database\label_images\Image_6.jpg",
-        # r"C:\Users\SONIARN\OneDrive - Mercedes-Benz (corpdir.onmicrosoft.com)\DISCO\Database\label_images\Image_7.jpg",
-        # r"C:\Users\SONIARN\OneDrive - Mercedes-Benz (corpdir.onmicrosoft.com)\DISCO\Database\label_images\Image_8.jpg",
-        # r"C:\Users\SONIARN\OneDrive - Mercedes-Benz (corpdir.onmicrosoft.com)\DISCO\Database\label_images\Image_9.jpg",
-    ]
+    if len(sys.argv) == 2:
+        image_path = sys.argv[1]
 
+        print(f"\n=== Processing image from watchdog ===")
+        print(image_path)
 
-    for p in paths:
-        print(f"\n=== Processing: {p} ===")
-        result = process_image_with_gemini(p)
+        result = process_image_with_gemini(image_path)
         print(json.dumps(result, indent=2))
-        update_csv_with_extraction(result)
+
+        # update_csv_with_extraction(result)
+        update_excel_with_extraction(result)
+    
+    # paths = [
+    #     # r"C:\Users\SONIARN\OneDrive - Mercedes-Benz (corpdir.onmicrosoft.com)\DISCO\Database\label_images\eftec_label.jpg",
+    #     # r"C:\Users\SONIARN\OneDrive - Mercedes-Benz (corpdir.onmicrosoft.com)\DISCO\Database\label_images\eftec_label_2.jpg",
+    #     # r"C:\Users\SONIARN\OneDrive - Mercedes-Benz (corpdir.onmicrosoft.com)\DISCO\Database\label_images\sika_label_1.jpg",
+    #     # r"C:\Users\SONIARN\OneDrive - Mercedes-Benz (corpdir.onmicrosoft.com)\DISCO\Database\label_images\sika_label_2.jpg",
+    #     # r"C:\Users\SONIARN\OneDrive - Mercedes-Benz (corpdir.onmicrosoft.com)\DISCO\Database\label_images\Image_1.jpg",
+    #     r"C:\Users\SONIARN\OneDrive - Mercedes-Benz (corpdir.onmicrosoft.com)\DISCO\Database\label_images\Image_2.jpg",
+    #     r"C:\Users\SONIARN\OneDrive - Mercedes-Benz (corpdir.onmicrosoft.com)\DISCO\Database\label_images\Image_3.jpg",
+    #     r"C:\Users\SONIARN\OneDrive - Mercedes-Benz (corpdir.onmicrosoft.com)\DISCO\Database\label_images\Image_6.jpg",
+    #     # r"C:\Users\SONIARN\OneDrive - Mercedes-Benz (corpdir.onmicrosoft.com)\DISCO\Database\label_images\Image_7.jpg",
+    #     # r"C:\Users\SONIARN\OneDrive - Mercedes-Benz (corpdir.onmicrosoft.com)\DISCO\Database\label_images\Image_8.jpg",
+    #     # r"C:\Users\SONIARN\OneDrive - Mercedes-Benz (corpdir.onmicrosoft.com)\DISCO\Database\label_images\Image_9.jpg",
+    # ]
+
+
+    # for p in paths:
+    #     print(f"\n=== Processing: {p} ===")
+    #     result = process_image_with_gemini(p)
+    #     print(json.dumps(result, indent=2))
+    #     update_csv_with_extraction(result)
